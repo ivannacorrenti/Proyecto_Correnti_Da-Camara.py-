@@ -1,4 +1,4 @@
-# Integrantes: Ivanna Correnti y Rodrigo Da Camara
+# Integrantes: Ivanna Correnti r R
 
 
 class Producto:
