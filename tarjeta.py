@@ -1,4 +1,4 @@
-# Integrantes: Ivanna Correnti r R
+# Integrantes: Ivanna Correnti y Rodrigo Da Camara
 
 
 class Tarjeta:
