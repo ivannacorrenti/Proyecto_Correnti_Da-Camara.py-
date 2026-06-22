@@ -5,6 +5,7 @@ from inventario import Inventario
 from producto import Producto
 from tarjeta import Tarjeta
 from transacciones import Venta, Restock
+import reporte
 
 URL_PRODUCTOS = "https://raw.githubusercontent.com/FernandoSapient/BPTSP05_2526-3/refs/heads/main/productos.json"
 URL_CLIENTES = "https://raw.githubusercontent.com/FernandoSapient/BPTSP05_2526-3/refs/heads/main/clientes.json"
@@ -439,6 +440,18 @@ class Maquina:
             if datos_validos is False:
                 print("\n  Datos no validos. Operacion cancelada.")
 
+    def generar_reporte(self):
+        """Recopila la informacion actual y delega la generacion del
+        reporte de texto y las graficas al modulo especializado.
+
+        Eficiencia: delegacion a funciones externas, la complejidad
+        depende del modulo de reporte O(v + n).
+        """
+        print("\n  Generando reporte de cierre...")
+        estadisticas = reporte.calcular_estadisticas(self.ventas, self.inventario)
+        reporte.generar_reporte_texto(estadisticas)
+        reporte.generar_todas_las_graficas(estadisticas)
+
     def mostrar_menu_principal(self):
         """Menu interactivo principal controlado por banderas.
 
@@ -456,7 +469,7 @@ class Maquina:
             elif opcion.upper() == "RS":
                 self.ejecutar_restock()
             elif opcion.upper() == "RP":
-                print("\n  [Funcion de Reportes - Pendiente de implementar]")
+                self.generar_reporte()
             else:
                 producto = self.inventario.buscar_por_coordenada(opcion.upper())
                 if producto is not None:
