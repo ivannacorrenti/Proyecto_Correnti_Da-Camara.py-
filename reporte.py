@@ -1,25 +1,15 @@
 # Integrantes: Ivanna Correnti y Rodrigo Da Camara
 import matplotlib.pyplot as plt
 from datetime import datetime
+import numpy as np
 
 ARCHIVO_REPORTE = "reporte_ventas.txt"
 
 
-def calcular_estadisticas(ventas, inventario):
-    """Recorre el historial de ventas y calcula las estadisticas
-    necesarias para el reporte y las graficas.
+def calcular_estadisticas(ventas, inventario, restocks, tarjetas, cantidad_inicial):
+    """Calcula las estadisticas necesarias para el reporte.
 
-    Retorna un diccionario con:
-        - ventas_por_producto: dict {nombre: cantidad_vendida}
-        - ingresos_por_producto: dict {nombre: monto_total}
-        - gasto_por_usuario: dict {hash_tarjeta: monto_total}
-        - total_dinero: float con el ingreso total
-        - stock_actual: dict {nombre: cantidad_restante}
-        - ventas_cronologicas: lista de tuplas (fecha, monto) ordenada
-
-    Eficiencia: recorrido unico O(v) donde v es el numero de ventas,
-    acumulando en diccionarios con acceso O(1) por llave. El recorrido
-    del inventario es O(n) adicional.
+    Eficiencia: O(v + n) recorridos lineales sin anidamiento.
     """
     ventas_por_producto = {}
     ingresos_por_producto = {}
@@ -54,10 +44,18 @@ def calcular_estadisticas(ventas, inventario):
         i = i + 1
 
     stock_actual = {}
+    cargado_por_producto = {}
     productos = inventario.obtener_productos()
     j = 0
     while j < len(productos):
-        stock_actual[productos[j].nombre] = productos[j].cantidad
+        nombre = productos[j].nombre
+        stock_actual[nombre] = productos[j].cantidad
+        
+        # El total cargado historicamente es la suma del stock actual
+        # y todo lo que ha salido (las ventas).
+        vendidos = ventas_por_producto.get(nombre, 0)
+        cargado_por_producto[nombre] = productos[j].cantidad + vendidos
+        
         j = j + 1
 
     estadisticas = {
@@ -66,36 +64,34 @@ def calcular_estadisticas(ventas, inventario):
         "gasto_por_usuario": gasto_por_usuario,
         "total_dinero": total_dinero,
         "stock_actual": stock_actual,
-        "ventas_cronologicas": ventas_cronologicas
+        "cargado_por_producto": cargado_por_producto,
+        "ventas_cronologicas": ventas_cronologicas,
+        "total_usuarios": len(tarjetas)
     }
 
     return estadisticas
 
 
 def generar_reporte_texto(estadisticas):
-    """Genera el archivo de texto con el resumen del reporte de cierre.
-
-    Incluye: ventas por producto, ingresos por producto,
-    gasto por usuario y total general.
-
-    Eficiencia: escritura secuencial O(p + u) donde p es la cantidad
-    de productos vendidos y u la cantidad de usuarios.
-    """
+    """Genera el reporte en txt."""
     fecha_reporte = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
     lineas = []
-    lineas.append("=" * 60)
+    lineas.append("=" * 70)
     lineas.append("       REPORTE DE CIERRE - MAQUINA EXPENDEDORA")
     lineas.append(f"       Fecha: {fecha_reporte}")
-    lineas.append("=" * 60)
+    lineas.append("=" * 70)
 
-    lineas.append("\n--- VENTAS POR PRODUCTO ---")
+    lineas.append("\n--- RESUMEN POR PRODUCTO (CARGADO VS VENDIDO) ---")
+    cargado = estadisticas["cargado_por_producto"]
     ventas_prod = estadisticas["ventas_por_producto"]
     stock = estadisticas["stock_actual"]
-    for nombre in ventas_prod:
-        unidades = ventas_prod[nombre]
+    
+    for nombre in cargado:
+        unidades_cargadas = cargado[nombre]
+        unidades_vendidas = ventas_prod.get(nombre, 0)
         stock_rest = stock.get(nombre, 0)
-        lineas.append(f"  {nombre[:30]:<32} Vendidos: {unidades:>3}  |  Stock restante: {stock_rest:>3}")
+        lineas.append(f"  {nombre[:25]:<27} Cargados: {unidades_cargadas:>3} | Vendidos: {unidades_vendidas:>3} | Restan: {stock_rest:>3}")
 
     lineas.append("\n--- INGRESOS POR PRODUCTO ---")
     ingresos = estadisticas["ingresos_por_producto"]
@@ -109,9 +105,13 @@ def generar_reporte_texto(estadisticas):
         monto = gastos[usuario]
         lineas.append(f"  Tarjeta: {usuario:<25} ${monto:>8.2f}")
 
-    lineas.append("\n" + "-" * 60)
-    lineas.append(f"  TOTAL RECAUDADO: ${estadisticas['total_dinero']:>10.2f}")
-    lineas.append("=" * 60)
+    lineas.append("\n" + "-" * 70)
+    
+    total_vendidos = sum(ventas_prod.values())
+    lineas.append(f"  TOTAL PRODUCTOS VENDIDOS: {total_vendidos:>5}")
+    lineas.append(f"  TOTAL USUARIOS REGISTRADOS: {estadisticas['total_usuarios']:>3}")
+    lineas.append(f"  TOTAL DINERO RECAUDADO:   ${estadisticas['total_dinero']:>10.2f}")
+    lineas.append("=" * 70)
 
     try:
         archivo = open(ARCHIVO_REPORTE, "w", encoding="utf-8")
@@ -131,62 +131,52 @@ def generar_reporte_texto(estadisticas):
 
 
 def grafica_barras_ventas(estadisticas):
-    """Genera un grafico de barras con las unidades vendidas
-    por producto y lo exporta como imagen PNG.
+    """Grafico de barras agrupadas: Cargado vs Vendido."""
+    cargado = estadisticas["cargado_por_producto"]
+    ventas = estadisticas["ventas_por_producto"]
 
-    Eficiencia: matplotlib opera sobre listas de tamanio p
-    (productos vendidos), la renderizacion es O(p).
-    """
-    ventas_prod = estadisticas["ventas_por_producto"]
-
-    if len(ventas_prod) == 0:
-        print("  No hay datos de ventas para graficar.")
+    if len(cargado) == 0:
         return
 
     nombres = []
-    cantidades = []
-    for nombre in ventas_prod:
-        nombres.append(nombre[:15])
-        cantidades.append(ventas_prod[nombre])
+    vals_cargados = []
+    vals_vendidos = []
 
-    plt.figure(figsize=(12, 6))
-    barras = plt.bar(nombres, cantidades, color='#3498db', edgecolor='#2c3e50', linewidth=0.8)
+    for nombre in cargado:
+        nombres.append(nombre[:10])
+        vals_cargados.append(cargado[nombre])
+        vals_vendidos.append(ventas.get(nombre, 0))
 
-    i = 0
-    while i < len(barras):
-        altura = barras[i].get_height()
-        plt.text(barras[i].get_x() + barras[i].get_width() / 2.0, altura + 0.1,
-                 str(int(altura)), ha='center', va='bottom', fontweight='bold', fontsize=9)
-        i = i + 1
+    x = np.arange(len(nombres))
+    width = 0.35
 
-    plt.title("Unidades Vendidas por Producto", fontsize=14, fontweight='bold')
-    plt.xlabel("Producto", fontsize=11)
-    plt.ylabel("Unidades Vendidas", fontsize=11)
-    plt.xticks(rotation=45, ha='right', fontsize=8)
+    fig, ax = plt.subplots(figsize=(14, 6))
+    rects1 = ax.bar(x - width/2, vals_cargados, width, label='Cargados', color='#3498db')
+    rects2 = ax.bar(x + width/2, vals_vendidos, width, label='Vendidos', color='#e74c3c')
+
+    ax.set_ylabel('Unidades')
+    ax.set_title('Unidades Cargadas vs Vendidas por Producto', fontsize=14, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels(nombres, rotation=45, ha='right', fontsize=8)
+    ax.legend()
+
     plt.tight_layout()
     plt.savefig("grafica_barras_ventas.png", dpi=150)
     plt.close()
     print("  Grafica de barras guardada en 'grafica_barras_ventas.png'.")
 
 
-def grafica_circular_ingresos(estadisticas):
-    """Genera un grafico circular (pie chart) con la distribucion
-    porcentual de ingresos por producto y lo exporta como PNG.
+def grafica_circular_gastos_usuario(estadisticas):
+    gastos = estadisticas["gasto_por_usuario"]
 
-    Eficiencia: matplotlib opera sobre listas de tamanio p,
-    renderizacion O(p).
-    """
-    ingresos = estadisticas["ingresos_por_producto"]
-
-    if len(ingresos) == 0:
-        print("  No hay datos de ingresos para graficar.")
+    if len(gastos) == 0:
         return
 
     nombres = []
     montos = []
-    for nombre in ingresos:
-        nombres.append(nombre[:15])
-        montos.append(ingresos[nombre])
+    for usuario in gastos:
+        nombres.append(usuario[:15])
+        montos.append(gastos[usuario])
 
     colores = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6',
                '#1abc9c', '#e67e22', '#34495e', '#16a085', '#c0392b',
@@ -198,24 +188,17 @@ def grafica_circular_ingresos(estadisticas):
     plt.figure(figsize=(10, 8))
     plt.pie(montos, labels=nombres, colors=colores[:len(nombres)],
             autopct='%1.1f%%', startangle=140, textprops={'fontsize': 8})
-    plt.title("Distribucion de Ingresos por Producto", fontsize=14, fontweight='bold')
+    plt.title("Gasto por Usuario (Tarjeta)", fontsize=14, fontweight='bold')
     plt.tight_layout()
-    plt.savefig("grafica_circular_ingresos.png", dpi=150)
+    plt.savefig("grafica_circular_gastos_usuario.png", dpi=150)
     plt.close()
-    print("  Grafica circular guardada en 'grafica_circular_ingresos.png'.")
+    print("  Grafica circular guardada en 'grafica_circular_gastos_usuario.png'.")
 
 
 def grafica_linea_ventas(estadisticas):
-    """Genera un grafico de linea con la evolucion acumulada
-    de ingresos a lo largo del tiempo y lo exporta como PNG.
-
-    Eficiencia: recorrido O(v) para calcular acumulados,
-    renderizacion O(v).
-    """
     cronologicas = estadisticas["ventas_cronologicas"]
 
     if len(cronologicas) == 0:
-        print("  No hay datos cronologicos para graficar.")
         return
 
     fechas = []
@@ -244,13 +227,8 @@ def grafica_linea_ventas(estadisticas):
 
 
 def generar_todas_las_graficas(estadisticas):
-    """Genera las tres graficas (barras, circular, linea) en secuencia.
-
-    Eficiencia: cada grafica se genera y cierra independientemente
-    para liberar memoria de matplotlib entre renderizaciones.
-    """
     print("\n  Generando graficas...")
     grafica_barras_ventas(estadisticas)
-    grafica_circular_ingresos(estadisticas)
+    grafica_circular_gastos_usuario(estadisticas)
     grafica_linea_ventas(estadisticas)
     print("  Todas las graficas generadas exitosamente.")
